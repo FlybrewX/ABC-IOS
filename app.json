@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "ABC Touch & Move",
+    "slug": "abc-touch-and-move",
+    "version": "1.0.0",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.abctouchandmove.app"
+    },
+    "scheme": "abctouchmove",
+    "plugins": [
+      "expo-font",
+      "expo-audio",
+      "expo-video"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5e403ec3-109a-4fe2-9321-4fe3b3616da9"
+      }
+    }
+  }
+}
