@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   View,
   Text,
@@ -30,9 +31,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     isUppercase: true,
     autoAdvance: false,
     letterSize: 150,
+    gamesPlayed: 0,
+    isPaid: false,
   });
 
   useEffect(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
     loadSettings().then(setSettings);
   }, []);
 
@@ -50,7 +54,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     setSettings(newSettings);
     await saveSettings(newSettings);
     const { playBackgroundMusic } = require('../audio/audio');
-    playBackgroundMusic(value);
+    playBackgroundMusic(value, 'home');
   };
 
   const handleAutoAdvanceToggle = async (value: boolean) => {
@@ -82,9 +86,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         { text: "Cancel", style: "cancel" },
         { 
           text: "Submit", 
-          onPress: (val) => {
+          onPress: (val?: string) => {
             if (parseInt(val || "0") === answer) {
-              Linking.openURL('https://example.com/privacy-policy');
+              Linking.openURL('https://abctouchmove.com/privacy');
+            } else {
+              Alert.alert("Oops!", "That's not correct.");
+            }
+          } 
+        }
+      ]
+    );
+  };
+
+  const handleContactSupport = () => {
+    const a = Math.floor(Math.random() * 5) + 1;
+    const b = Math.floor(Math.random() * 5) + 1;
+    const answer = a + b;
+    
+    // Parental Gate for Support (Rule 1.5/1.3)
+    Alert.prompt(
+      "Parents Only",
+      `Please solve to contact support: ${a} + ${b} = ?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Submit", 
+          onPress: (val?: string) => {
+            if (parseInt(val || "0") === answer) {
+              Linking.openURL('mailto:hello@abctouchmove.com?subject=ABC Learning Support');
             } else {
               Alert.alert("Oops!", "That's not correct.");
             }
@@ -107,7 +136,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
         { text: "Cancel", style: "cancel" },
         { 
           text: "Submit", 
-          onPress: (val) => {
+          onPress: (val?: string) => {
             if (parseInt(val || "0") === answer) {
               performRestore();
             } else {
@@ -239,19 +268,37 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             </Text>
           </View>
 
-          <TouchableOpacity 
-            style={styles.privacyButton} 
-            onPress={handleRestore}
-          >
-            <Text style={styles.privacyText}>Restore Previous Purchase</Text>
-          </TouchableOpacity>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>✉️ Support</Text>
+            <Text style={styles.labelSubtext}>Need help? Contact us!</Text>
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={handleContactSupport}
+            >
+              <Text style={styles.testButtonText}>Email Support</Text>
+            </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity 
-            style={styles.privacyButton} 
-            onPress={openPrivacyPolicy}
-          >
-            <Text style={styles.privacyText}>Privacy Policy & Terms</Text>
-          </TouchableOpacity>
+          <View style={[styles.section, { marginBottom: 40 }]}>
+            <Text style={styles.sectionTitle}>⚖️ Legal & About</Text>
+            <Text style={styles.labelText}>ABC Learning for Kids</Text>
+            <Text style={styles.labelSubtext}>Version 1.0.0</Text>
+            <Text style={styles.labelSubtext}>© 2024 ABC Touch & Move</Text>
+            
+            <TouchableOpacity 
+              style={[styles.privacyButton, { marginBottom: 0, marginTop: 10, padding: 10 }]} 
+              onPress={handleRestore}
+            >
+              <Text style={styles.privacyText}>Restore Previous Purchase</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.privacyButton, { marginBottom: 0, marginTop: 10, padding: 10 }]} 
+              onPress={openPrivacyPolicy}
+            >
+              <Text style={styles.privacyText}>Privacy Policy & Terms</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>

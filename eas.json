@@ -1,0 +1,21 @@
+{
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {}
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "qatar2100@yahoo.com",
+        "ascAppId": "6759870465",
+        "sku": "EX1772382256956"
+      }
+    }
+  }
+}

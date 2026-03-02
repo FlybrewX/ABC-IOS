@@ -16,9 +16,10 @@ interface PrimaryButtonProps {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'success' | 'danger';
+  variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'accent';
   size?: 'small' | 'medium' | 'large';
   style?: ViewStyle;
+  glow?: boolean;
 }
 
 export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
@@ -29,16 +30,21 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   variant = 'primary',
   size = 'medium',
   style,
+  glow = false,
 }) => {
   const getBackgroundColor = () => {
     if (disabled) return colors.buttonDisabled;
     switch (variant) {
+      case 'primary':
+        return colors.primary;
       case 'secondary':
         return colors.secondary;
       case 'success':
         return colors.success;
       case 'danger':
         return colors.danger;
+      case 'accent':
+        return colors.accent;
       default:
         return colors.buttonBg;
     }
@@ -67,12 +73,21 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
     }
   };
 
+  const bgColor = getBackgroundColor();
+
   const buttonStyle: ViewStyle = {
-    backgroundColor: getBackgroundColor(),
+    backgroundColor: bgColor,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     ...getSize(),
+    ...(glow && {
+      shadowColor: bgColor,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.8,
+      shadowRadius: 15,
+      elevation: 10,
+    }),
   };
 
   const labelStyle: TextStyle = {

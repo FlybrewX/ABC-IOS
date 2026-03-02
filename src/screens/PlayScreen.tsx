@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   View,
   Text,
@@ -9,14 +10,18 @@ import {
   TouchableOpacity,
   Modal,
   Alert,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { typography } from '../theme/typography';
+import { isPad, SCREEN_WIDTH, SCREEN_HEIGHT } from '../utils/device';
 import { ALPHABET, ALPHABET_DATA } from '../data/letters';
-import { playLetterSound, playBackgroundMusic, playSparkleSound } from '../audio/audio';
+import { playLetterSound, playBackgroundMusic, playSparkleSound, playAlphabetSong, unloadAllSounds } from '../audio/audio';
 import { loadSettings, AppSettings, saveSettings } from '../storage/settings';
 import { DraggableLetter } from '../components/DraggableLetter';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -27,14 +32,17 @@ import Animated, {
   withRepeat,
   withTiming,
   withSequence,
+  runOnJS,
 } from 'react-native-reanimated';
 
-const { width, height } = Dimensions.get('window');
-const TARGET_SIZE = 75;
-const LETTER_SIZE = 70;
 const HINT_DELAY = 4000; // 4 seconds before showing hint
-
 const DECO_ITEMS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '⭐', '🎈', '✨', '🍎', '🐻', '🐱'];
+
+// Initial layout values for StyleSheet (static)
+const width = SCREEN_WIDTH;
+const height = SCREEN_HEIGHT;
+const TARGET_SIZE = isPad ? 86 : 54;
+const LETTER_SIZE = isPad ? 78 : 48;
 
 const FloatingDecoration = ({ text, delay = 0, initialX = 0, initialY = 0 }: any) => {
   const translateY = useSharedValue(initialY);
@@ -89,11 +97,28 @@ interface LetterItem {
 }
 
 export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  
+  const width = Math.max(windowWidth, windowHeight);
+  const height = Math.min(windowWidth, windowHeight);
+  
+  // Safe width accounts for landscape notches/home indicators
+  const safeWidth = width - (insets.left + insets.right || 40) - 20;
+  const TARGET_SIZE = isPad ? 86 : Math.min(54, safeWidth / 13);
+  const LETTER_SIZE = isPad ? 78 : Math.max(20, Math.min(48, TARGET_SIZE - 6));
+
   const [placedLetters, setPlacedLetters] = useState<string[]>([]);
   const [unplacedLetters, setUnplacedLetters] = useState<LetterItem[]>([]);
   const [nextExpected, setNextExpected] = useState('A');
   const [draggingLetter, setDraggingLetter] = useState<string | null>(null);
   const [isPaywallVisible, setIsPaywallVisible] = useState(false);
+  const [songFinished, setSongFinished] = useState(false);
+  const [winPhrase, setWinPhrase] = useState("🎵 Listen to the Alphabet Song! 🎵");
+  const [highlightedWinLetter, setHighlightedWinLetter] = useState<string | null>(null);
+  const [highlightAllWinLetters, setHighlightAllWinLetters] = useState(false);
+  const [isWinning, setIsWinning] = useState(false);
+  const [gridBottom, setGridBottom] = useState(height * 0.6); // Default fallback
   const [settings, setSettings] = useState<AppSettings>({
     soundEnabled: true,
     bgMusicEnabled: true,
@@ -104,26 +129,108 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
     isPaid: false,
   });
   
+  const isFocused = useIsFocused();
   const targetLayouts = useRef<{ [key: string]: { x: number; y: number; width: number; height: number } }>({});
+  // Use a single ref for the container and calculate slot positions relative to it
+  // This is more robust in New Architecture than measuring 26 individual slots
+  const gridLayoutMeasured = useRef(false);
+
+  const winTimeouts = useRef<NodeJS.Timeout[]>([]);
+  const winTimer = useRef<NodeJS.Timeout | null>(null);
   const confettiOpacity = useSharedValue(0);
   const winScale = useSharedValue(0);
+  const winJump = useSharedValue(0);
+  const buttonOpacity = useSharedValue(1);
   const hintOpacity = useSharedValue(0);
   const hintTimer = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    loadSettings().then(s => {
-      setSettings(s);
-      playBackgroundMusic(s.bgMusicEnabled);
+  // Function to update target layouts safely using Reanimated's measure
+  const updateTargetLayouts = useCallback(() => {
+    // We know the structure of the grid: 13 cols, 2 rows
+    const cols = 13;
+    const padding = isPad ? 100 : (insets.left || 20);
+    const cellWidth = safeWidth / cols;
+    const gridY = 80; 
+
+    ALPHABET.forEach((letter, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
       
-      // Strict 3-game limit check on launch (Rule 3.1.1)
-      if (!s.isPaid && s.gamesPlayed >= 3) {
-        setIsPaywallVisible(true);
-      }
+      targetLayouts.current[letter] = {
+        x: padding + col * cellWidth,
+        y: gridY + row * (TARGET_SIZE + 20),
+        width: cellWidth,
+        height: TARGET_SIZE + 20,
+      };
     });
+    
+    setGridBottom(gridY + 2 * (TARGET_SIZE + 20));
+    gridLayoutMeasured.current = true;
+  }, [safeWidth, isPad, TARGET_SIZE, insets.left]);
+
+  useEffect(() => {
+    if (isFocused) {
+      // Re-calculate layouts after orientation change
+      const timer = setTimeout(() => {
+        updateTargetLayouts();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isFocused, updateTargetLayouts]);
+
+  useEffect(() => {
+    if (isFocused) {
+      loadSettings().then(s => {
+        setSettings(s);
+        console.log(`[PlayScreen] Focus: bgMusicEnabled=${s.bgMusicEnabled}`);
+        playBackgroundMusic(s.bgMusicEnabled, 'play');
+        
+        // Strict 3-game limit check on launch (Rule 3.1.1)
+        if (!s.isPaid && s.gamesPlayed >= 3) {
+          // Delay paywall to allow orientation to settle
+          setTimeout(() => {
+            if (isFocused) setIsPaywallVisible(true);
+          }, 1000);
+        }
+      });
+    } else {
+      console.log('[PlayScreen] Blur: pausing music');
+      playBackgroundMusic(false, 'play');
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
+    // Lock to Landscape on Mount with delay to prevent crash during transition
+    const lockOrientation = async () => {
+      // Delay to ensure navigation animation finishes
+      await new Promise(resolve => setTimeout(resolve, 800)); // Slightly longer delay for stability
+      try {
+        const current = await ScreenOrientation.getOrientationAsync();
+        if (current !== ScreenOrientation.Orientation.LANDSCAPE_LEFT && 
+            current !== ScreenOrientation.Orientation.LANDSCAPE_RIGHT) {
+          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        }
+      } catch (e) {
+        console.log("Orientation lock error:", e);
+      }
+    };
+    lockOrientation();
+
     initializeLetters();
     return () => {
       if (hintTimer.current) clearTimeout(hintTimer.current);
-      playBackgroundMusic(false);
+      if (winTimer.current) clearTimeout(winTimer.current);
+      console.log('[PlayScreen] Unmount: pausing music');
+      playBackgroundMusic(false, 'play'); 
+      winTimeouts.current.forEach(clearTimeout);
+      
+      // Reset Orientation on Unmount
+      try {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.ALL);
+      } catch (e) {
+        console.log("Orientation unlock error:", e);
+      }
     };
   }, []);
 
@@ -161,27 +268,26 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
     const newSettings = { ...settings, bgMusicEnabled: newValue };
     setSettings(newSettings);
     saveSettings(newSettings);
-    playBackgroundMusic(newValue);
+    playBackgroundMusic(newValue, 'play');
   };
 
   const getRandomSafePosition = (existing: LetterItem[], threshold: number, preferBottom: boolean = false) => {
     let attempts = 0;
-    const padding = 40;
+    const padding = isPad ? 100 : 60; 
     const minX = padding;
     const maxX = width - padding - LETTER_SIZE;
     
-    // Expanded vertical range with bottom margin for buttons/ui
-    const minY = height * 0.45; 
-    const bottomMargin = 180;
-    const maxY = height - bottomMargin - LETTER_SIZE;
+    // Adaptive range: Use the measured gridBottom to avoid overlaps
+    // For iPad, ensure at least 80px space below the grid
+    const minY = Math.max(gridBottom + (isPad ? 80 : 20), height * (isPad ? 0.55 : 0.60)); 
+    const bottomMargin = isPad ? 40 : 10; 
+    const maxY = Math.max(minY + 40, height - bottomMargin - LETTER_SIZE);
 
-    while (attempts < 500) {
+    while (attempts < 800) { // More attempts for tight spaces
       const x = Math.random() * (maxX - minX) + minX;
       const y = Math.random() * (maxY - minY) + minY;
       
       const hasCollision = existing.some(item => {
-        const dx = x - item.x;
-        const dy = y - item.y;
         // Check if rectangles overlap with a small buffer
         return (
           x < item.x + threshold &&
@@ -202,43 +308,99 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
   };
 
   const initializeLetters = async (lettersToSpawn: string[] = ALPHABET, excludePlaced: boolean = true) => {
+    setIsWinning(false);
+    setSongFinished(false);
+    setWinPhrase("🎵 Listen to the Alphabet Song! 🎵");
+    setHighlightedWinLetter(null);
+    setHighlightAllWinLetters(false);
+    winScale.value = 0;
+    winJump.value = 0;
+    buttonOpacity.value = 1;
+    
+    // Clear all win timeouts
+    if (winTimer.current) clearTimeout(winTimer.current);
+    winTimeouts.current.forEach(clearTimeout);
+    winTimeouts.current = [];
+    
     const finalLetters = excludePlaced 
       ? lettersToSpawn.filter(l => !placedLetters.includes(l))
       : lettersToSpawn;
 
-    const finalPositions: { x: number; y: number }[] = [];
-    const COLLISION_THRESHOLD = 75; // Matches LETTER_SIZE plus small buffer
+    // Use a shuffled grid approach for "perfect" scattering without overlap
+    const cols = 13; // 13 columns for both iPhone and iPad to keep it uniform
+    const rows = 2;
+    const totalSlots = cols * rows; // 26 slots
+    
+    const slots: number[] = [];
+    for (let i = 0; i < totalSlots; i++) slots.push(i);
+    
+    // Shuffle slots
+    for (let i = slots.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [slots[i], slots[j]] = [slots[j], slots[i]];
+    }
 
-    finalLetters.forEach(() => {
-      const pos = getRandomSafePosition(
-        finalPositions.map((p, i) => ({ id: i.toString(), letter: '', ...p })), 
-        COLLISION_THRESHOLD,
-        true
-      );
-      finalPositions.push(pos);
+    const padding = isPad ? 100 : 20;
+    const bottomMargin = isPad ? 40 : 10;
+    const minY = Math.max(gridBottom + (isPad ? 80 : 10), height * (isPad ? 0.55 : 0.55)); // Relaxed minY
+    const maxY = Math.max(minY + 40, height - bottomMargin - LETTER_SIZE);
+    
+    const cellWidth = (width - padding * 2) / cols;
+    const cellHeight = (maxY - minY) / rows;
+
+    const finalPositions: { x: number; y: number }[] = [];
+    
+    finalLetters.forEach((_, index) => {
+      if (index < slots.length) {
+        const slotIdx = slots[index];
+        const col = slotIdx % cols;
+        const row = Math.floor(slotIdx / cols);
+        
+        // Base position
+        let x = padding + col * cellWidth + (cellWidth - LETTER_SIZE) / 2;
+        let y = minY + row * cellHeight + (cellHeight - LETTER_SIZE) / 2;
+        
+        // Add jitter (up to 30% of cell size) for "scattered" look
+        const jitterX = (Math.random() - 0.5) * cellWidth * 0.3;
+        const jitterY = (Math.random() - 0.5) * cellHeight * 0.3;
+        
+        x = Math.max(padding, Math.min(width - padding - LETTER_SIZE, x + jitterX));
+        y = Math.max(minY, Math.min(maxY, y + jitterY));
+        
+        finalPositions.push({ x, y });
+      } else {
+        // Fallback for any extras (rare)
+        const pos = getRandomSafePosition(
+          finalPositions.map((p, i) => ({ id: i.toString(), letter: '', ...p })), 
+          isPad ? 100 : 65,
+          true
+        );
+        finalPositions.push(pos);
+      }
     });
 
     const initialItems: LetterItem[] = finalLetters.map((letter, index) => ({
       id: `${letter}-${Date.now()}-${index}`,
       letter,
       x: finalPositions[index].x,
-      y: finalPositions[index].y, // We'll handle the "fall" animation in the component
+      y: finalPositions[index].y, 
     }));
 
     setUnplacedLetters(initialItems);
   };
 
   const getSafeFallPosition = (existing: LetterItem[], startX: number, startY: number, threshold: number) => {
-    const minY = height * 0.45;
-    const bottomMargin = 180;
-    const maxY = height - bottomMargin - LETTER_SIZE;
+    const minY = Math.max(gridBottom + (isPad ? 80 : 10), height * (isPad ? 0.55 : 0.55));
+    const bottomMargin = isPad ? 40 : 10; 
+    const maxY = Math.max(minY + 40, height - bottomMargin - LETTER_SIZE);
     const step = 20;
+    const padding = isPad ? 100 : 20; 
     
     // Try to stay near where the user dropped it, but look for a safe spot
     for (let radius = 0; radius < height * 0.5; radius += step) {
       for (const angle of [0, 45, 90, 135, 180, 225, 270, 315]) {
         const rad = (angle * Math.PI) / 180;
-        const x = Math.max(40, Math.min(width - 40 - LETTER_SIZE, startX + radius * Math.cos(rad)));
+        const x = Math.max(padding, Math.min(width - padding - LETTER_SIZE, startX + radius * Math.cos(rad)));
         const y = Math.max(minY, Math.min(maxY, startY + radius * Math.sin(rad)));
 
         const hasCollision = existing.some(item => {
@@ -258,6 +420,11 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
 
   const handleDrop = useCallback((letterItem: LetterItem, absX: number, absY: number) => {
     const { letter } = letterItem;
+    
+    // If the letter was already "auto-filled" during drag, it won't be in unplacedLetters
+    const isStillUnplaced = unplacedLetters.some(item => item.id === letterItem.id);
+    if (!isStillUnplaced) return;
+
     const target = targetLayouts.current[letter];
     const COLLISION_THRESHOLD = 80;
     const DROP_MARGIN = 40; // Extra pixels of "ease" for children
@@ -270,29 +437,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
         absY <= target.y + target.height + DROP_MARGIN;
 
       if (isInside) {
-        setPlacedLetters(prev => [...prev, letter]);
-        setUnplacedLetters(prev => prev.filter(item => item.id !== letterItem.id));
-        
-        // Play correct ding first, then the letter sound
-        playLetterSound('correct', settings.soundEnabled).then(() => {
-          setTimeout(() => {
-            playLetterSound(letter, settings.soundEnabled);
-          }, 500);
-        });
-        
-        const nextIdx = ALPHABET.indexOf(letter) + 1;
-        if (nextIdx < ALPHABET.length) {
-          setNextExpected(ALPHABET[nextIdx]);
-        } else {
-          setNextExpected('');
-          showWinEffect();
-          
-          // Increment games played
-          const newGamesPlayed = settings.gamesPlayed + 1;
-          const newSettings = { ...settings, gamesPlayed: newGamesPlayed };
-          setSettings(newSettings);
-          saveSettings(newSettings);
-        }
+        completeLetter(letterItem);
         return;
       }
     }
@@ -309,6 +454,70 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
     ));
   }, [placedLetters, unplacedLetters, settings.soundEnabled, width, height, settings.gamesPlayed]);
 
+  const handleDragUpdate = useCallback((letterItem: LetterItem, absX: number, absY: number) => {
+    const { letter } = letterItem;
+    const target = targetLayouts.current[letter];
+    const HOVER_MARGIN = 30; // Slightly tighter than drop margin for better feel
+
+    if (target) {
+      const isInside = 
+        absX >= target.x - HOVER_MARGIN && 
+        absX <= target.x + target.width + HOVER_MARGIN &&
+        absY >= target.y - HOVER_MARGIN && 
+        absY <= target.y + target.height + HOVER_MARGIN;
+
+      if (isInside) {
+        // Only trigger if not already placed (prevents multiple triggers)
+        setPlacedLetters(prev => {
+          if (prev.includes(letter)) return prev;
+          
+          // If we are here, it's a new placement
+          // Use a timeout or state to ensure we don't call this too many times during drag
+          completeLetter(letterItem);
+          return [...prev, letter];
+        });
+      }
+    }
+  }, [unplacedLetters, settings.soundEnabled]);
+
+  const completeLetter = (letterItem: LetterItem) => {
+    const { letter } = letterItem;
+    
+    setUnplacedLetters(prev => prev.filter(item => item.id !== letterItem.id));
+    
+    // Play correct ding first, then the letter sound
+    playLetterSound('correct', settings.soundEnabled).then(() => {
+      setTimeout(() => {
+        playLetterSound(letter, settings.soundEnabled);
+      }, 500);
+    });
+    
+    const nextIdx = ALPHABET.indexOf(letter) + 1;
+    if (nextIdx < ALPHABET.length) {
+      setNextExpected(ALPHABET[nextIdx]);
+    } else {
+      setNextExpected('');
+    }
+
+    // Win condition: Check if all letters are now placed
+    setPlacedLetters(prev => {
+      const isNew = !prev.includes(letter);
+      const newPlaced = isNew ? [...prev, letter] : prev;
+      
+      if (newPlaced.length === ALPHABET.length) {
+        showWinEffect();
+        
+        // Increment games played
+        const newGamesPlayed = settings.gamesPlayed + 1;
+        const newSettings = { ...settings, gamesPlayed: newGamesPlayed };
+        setSettings(newSettings);
+        saveSettings(newSettings);
+      }
+      
+      return newPlaced;
+    });
+  };
+
   const onTargetLayout = (letter: string, event: any) => {
     const { x, y, width, height } = event.nativeEvent.layout;
     // We need absolute coordinates, but layout gives relative to parent
@@ -324,17 +533,108 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
   };
 
   const showWinEffect = () => {
+    // Stop background music during win song
+    playBackgroundMusic(false);
+    
+    // Reset all win states
+    setIsWinning(true);
+    setSongFinished(false);
+    setHighlightedWinLetter(null);
+    setHighlightAllWinLetters(false);
+    
+    // Clear any lingering win timeouts
+    winTimeouts.current.forEach(clearTimeout);
+    winTimeouts.current = [];
+    
     showConfetti();
     winScale.value = withSpring(1, { damping: 10, stiffness: 100 });
+    
+    // Perfectly synchronized timings based on (0:00, 0:05, 0:09, 0:14, 0:18, 0:23)
+    const letterTimings: { [key: string]: number } = {
+      // 0:00 - 0:05 (A, B, C, D, E, F, G)
+      'A': 100, 'B': 800, 'C': 1500, 'D': 2200, 'E': 2900, 'F': 3600, 'G': 4300,
+      // 0:05 - 0:09 (H, I, J, K, L, M, N, O, P)
+      'H': 5000, 'I': 5500, 'J': 6000, 'K': 6500, 'L': 7000, 'M': 7400, 'N': 7800, 'O': 8200, 'P': 8600,
+      // 0:09 - 0:14 (Q, R, S, T, U, V)
+      'Q': 9200, 'R': 10000, 'S': 10800, 'T': 11600, 'U': 12400, 'V': 13200,
+      // 0:14 - 0:18 (W, X, Y, Z)
+      'W': 14200, 'X': 15200, 'Y': 16200, 'Z': 17200
+    };
+
+    // Start dancing animation
+    winJump.value = withRepeat(
+      withSequence(
+        withTiming(-20, { duration: 300 }),
+        withTiming(0, { duration: 300 })
+      ),
+      -1,
+      true
+    );
+
+    const winPhrases = [
+      { time: 0, text: "🎶 A, B, C, D, E, F, G 🎵" },
+      { time: 5000, text: "🎶 H, I, J, K, L, M, N, O, P 🎵" },
+      { time: 9200, text: "🎶 Q, R, S, T, U, V 🎵" },
+      { time: 14200, text: "🎶 W, X, Y, and Z 🎵" },
+      { time: 18000, text: "🎶 Now I know my ABC's 🎵" },
+      { time: 23000, text: "🎶 Next time won't you sing with me! 🎶" },
+    ];
+
     playSparkleSound(settings.soundEnabled);
-    setTimeout(() => {
-      playLetterSound('success', settings.soundEnabled);
-    }, 500);
+    
+    // Initial win card text
+    setWinPhrase("🎵 Let's sing together! 🎵");
+
+    // Wait 2s for "Z" sound to finish, then start the song and highlights simultaneously
+    winTimer.current = setTimeout(() => {
+      // Start the song
+      playAlphabetSong(settings.soundEnabled, () => {
+        setSongFinished(true);
+        setWinPhrase("You matched the whole alphabet! 🎉");
+        setHighlightedWinLetter(null);
+        setHighlightAllWinLetters(true); // Keep all highlighted at the end
+        
+        // Restart background music after win song
+        playBackgroundMusic(settings.bgMusicEnabled, 'play', true);
+        // Start flashing animation for button
+        buttonOpacity.value = withRepeat(
+          withTiming(0.4, { duration: 600 }),
+          -1,
+          true
+        );
+      });
+
+      // Synchronize letter highlights with song (started at the same time)
+      ALPHABET.forEach(letter => {
+        const t = setTimeout(() => {
+          setHighlightedWinLetter(letter);
+        }, letterTimings[letter]);
+        winTimeouts.current.push(t);
+      });
+
+      // Synchronize transcript phrases with song
+      winPhrases.forEach(p => {
+        const t = setTimeout(() => {
+          setWinPhrase(p.text);
+          // When we reach "Now I know my ABC's" at 18s, highlight all letters
+          if (p.time === 18000) {
+            setHighlightedWinLetter(null);
+            setHighlightAllWinLetters(true);
+          }
+        }, p.time);
+        winTimeouts.current.push(t);
+      });
+    }, 2000); 
   };
 
   const winAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: winScale.value }],
+    transform: [{ scale: winScale.value }, { translateY: winJump.value }],
     opacity: winScale.value,
+  }));
+
+  const buttonAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: buttonOpacity.value,
+    transform: [{ scale: withSpring(buttonOpacity.value === 1 ? 1 : 1.05) }]
   }));
 
   const confettiStyle = useAnimatedStyle(() => ({
@@ -358,7 +658,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
         { text: "Cancel", style: "cancel" },
         { 
           text: "Submit", 
-          onPress: (val) => {
+          onPress: (val?: string) => {
             if (parseInt(val || "0") === answer) {
               completePurchase();
             } else {
@@ -383,7 +683,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
         { text: "Cancel", style: "cancel" },
         { 
           text: "Submit", 
-          onPress: (val) => {
+          onPress: (val?: string) => {
             if (parseInt(val || "0") === answer) {
               performRestore();
             } else {
@@ -421,12 +721,30 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
   };
 
   const handlePlayAgain = () => {
+    if (isWinning && !songFinished) return; // Prevent restart while song is playing
+    
     if (!settings.isPaid && settings.gamesPlayed >= 3) {
       setIsPaywallVisible(true);
       return;
     }
+
+    // Reset Win State
+    setIsWinning(false);
+    setSongFinished(false);
+    setWinPhrase("🎵 Listen to the Alphabet Song! 🎵");
+    setHighlightedWinLetter(null);
+    setHighlightAllWinLetters(false);
+    winJump.value = 0;
+    winScale.value = 0;
+    buttonOpacity.value = 1;
+    if (winTimer.current) clearTimeout(winTimer.current);
+    winTimeouts.current.forEach(clearTimeout);
+    winTimeouts.current = [];
+
     setPlacedLetters([]);
     setNextExpected('A');
+    unloadAllSounds(true);
+    playBackgroundMusic(settings.bgMusicEnabled, 'play', true);
     initializeLetters(ALPHABET, false);
   };
 
@@ -493,32 +811,41 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
         </View>
 
         <View style={styles.gameContainer}>
-          <View style={styles.alphabetGrid}>
+          <View 
+            style={styles.alphabetGrid}
+          >
             {ALPHABET_DATA.map((item) => {
               const letter = item.char;
               const isVowel = item.isVowel;
               const letterColor = isVowel ? '#FF6B6B' : '#4D96FF';
               
-              // Hint logic: 
-              // 1. If dragging a letter, that specific slot should highlight after 4s.
-              // 2. If NOT dragging, the next expected letter in sequence should highlight after 4s.
               const isHint = draggingLetter 
                 ? letter === draggingLetter 
                 : letter === nextExpected;
 
+              const isWinHighlight = highlightedWinLetter === letter || highlightAllWinLetters;
+              
+              const letterAnimatedStyle = useAnimatedStyle(() => ({
+                transform: [
+                  { translateY: isWinHighlight ? winJump.value : 0 },
+                  { scale: isWinHighlight ? (highlightAllWinLetters ? 1.2 : 1.5) : 1 }
+                ],
+              }));
+
               return (
-                <View 
+                <Animated.View 
                   key={letter} 
                   style={[
                     styles.targetSlot,
                     placedLetters.includes(letter) && { borderColor: letterColor, borderStyle: 'solid' },
-                    placedLetters.includes(letter) && { backgroundColor: letterColor + '15' }
+                    placedLetters.includes(letter) && { backgroundColor: letterColor + '15' },
+                    isWinHighlight && { 
+                      backgroundColor: colors.accent + '60', 
+                      borderColor: colors.accent, 
+                      zIndex: 2000, 
+                    },
+                    letterAnimatedStyle
                   ]}
-                  onLayout={(event) => {
-                    event.target.measure((x, y, width, height, pageX, pageY) => {
-                      targetLayouts.current[letter] = { x: pageX, y: pageY, width, height };
-                    });
-                  }}
                 >
                   {isHint && (
                     <Animated.View style={[
@@ -537,6 +864,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
                       }}
                       activeOpacity={0.7}
                     >
+                      <Text style={styles.emojiText}>{item.emoji}</Text>
                       <Text style={[styles.targetText, styles.targetTextVisible, { color: letterColor }]}>
                         {settings.isUppercase ? letter : letter.toLowerCase()}
                       </Text>
@@ -547,34 +875,10 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
                       {settings.isUppercase ? letter : letter.toLowerCase()}
                     </Text>
                   )}
-                </View>
+                </Animated.View>
               );
             })}
           </View>
-
-          {unplacedLetters.map((item) => {
-            const data = ALPHABET_DATA.find(d => d.char === item.letter);
-            return (
-              <DraggableLetter
-                key={item.id}
-                letter={item.letter}
-                isVowel={data?.isVowel || false}
-                isUppercase={settings.isUppercase}
-                x={item.x}
-                y={item.y}
-                onTap={() => {}}
-                onDoubleTap={() => {}}
-                onPress={(l) => {
-                  playSparkleSound(settings.soundEnabled);
-                  playLetterSound(l, settings.soundEnabled);
-                }}
-                onDragStart={(l) => setDraggingLetter(l)}
-                onDragEnd={() => setDraggingLetter(null)}
-                onDrop={(absX, absY) => handleDrop(item, absX, absY)}
-                size={LETTER_SIZE}
-              />
-            );
-          })}
 
           {unplacedLetters.length === 0 && (
             <Animated.View style={[styles.winContainer, winAnimatedStyle]}>
@@ -584,66 +888,98 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
               >
                 <Text style={styles.trophy}>🏆✨🌈</Text>
                 <Text style={styles.winText}>🌟 AMAZING JOB! 🌟</Text>
-                <Text style={styles.winSubText}>You matched the whole alphabet! 🎉</Text>
-                <PrimaryButton 
-                  label="PLAY AGAIN! 🎈" 
-                  onPress={() => {
-                    winScale.value = withTiming(0);
-                    handlePlayAgain();
-                  }}
-                  variant="secondary"
-                  size="large"
-                  style={styles.winButton}
-                />
+                <Text style={styles.winSubText}>
+                  {winPhrase}
+                </Text>
+                
+                {songFinished && (
+                  <Animated.View style={[styles.winButtonContainer, buttonAnimatedStyle]}>
+                    <PrimaryButton 
+                      label="PLAY AGAIN! 🎈" 
+                      onPress={() => {
+                        winScale.value = withTiming(0);
+                        handlePlayAgain();
+                      }}
+                      variant="secondary"
+                      size="large"
+                      style={styles.winButton}
+                    />
+                  </Animated.View>
+                )}
               </LinearGradient>
             </Animated.View>
           )}
         </View>
-
-        <Modal
-          visible={isPaywallVisible}
-          transparent={true}
-          animationType="slide"
-        >
-          <View style={styles.paywallOverlay}>
-            <View style={styles.paywallContent}>
-              <Text style={styles.paywallTrophy}>🎁</Text>
-              <Text style={styles.paywallTitle}>Keep the Fun Going!</Text>
-              <Text style={styles.paywallText}>
-                You've played your 3 free games. Unlock the full version for unlimited play and all future updates!
-              </Text>
-              <Text style={styles.paywallPrice}>Only $0.99</Text>
-              
-              <PrimaryButton 
-                label="UNLOCK EVERYTHING! 🚀" 
-                onPress={handlePurchase}
-                style={styles.paywallButton}
-              />
-
-              <TouchableOpacity 
-                style={styles.restoreButton} 
-                onPress={handleRestore}
-              >
-                <Text style={styles.restoreText}>Restore Previous Purchase</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.paywallClose} 
-                onPress={() => {
-                  setIsPaywallVisible(false);
-                  navigation.goBack();
-                }}
-              >
-                <Text style={styles.paywallCloseText}>Maybe Later</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-
-        <Animated.View style={[styles.confetti, confettiStyle]} pointerEvents="none">
-          <Text style={styles.confettiText}>🎊 SUPER! 🎊</Text>
-        </Animated.View>
       </SafeAreaView>
+
+      {unplacedLetters.map((item) => {
+        const data = ALPHABET_DATA.find(d => d.char === item.letter);
+        return (
+          <DraggableLetter
+            key={item.id}
+            letter={item.letter}
+            isVowel={data?.isVowel || false}
+            isUppercase={settings.isUppercase}
+            x={item.x}
+            y={item.y}
+            onTap={() => {}}
+            onDoubleTap={() => {}}
+            onPress={(l) => {
+              playSparkleSound(settings.soundEnabled);
+              playLetterSound(l, settings.soundEnabled);
+            }}
+            onDragStart={(l) => setDraggingLetter(l)}
+            onDragEnd={() => setDraggingLetter(null)}
+            onDragUpdate={(absX, absY) => handleDragUpdate(item, absX, absY)}
+            onDrop={(absX, absY) => handleDrop(item, absX, absY)}
+            size={LETTER_SIZE}
+          />
+        );
+      })}
+
+      <Modal
+        visible={isPaywallVisible}
+        transparent={true}
+        animationType="slide"
+      >
+        <View style={styles.paywallOverlay}>
+          <View style={styles.paywallContent}>
+            <Text style={styles.paywallTrophy}>🎁</Text>
+            <Text style={styles.paywallTitle}>Keep the Fun Going!</Text>
+            <Text style={styles.paywallText}>
+              You've played your 3 free games. Unlock the full version for unlimited play and all future updates!
+            </Text>
+            <Text style={styles.paywallPrice}>Only $0.99</Text>
+            
+            <PrimaryButton 
+              label="UNLOCK EVERYTHING! 🚀" 
+              onPress={handlePurchase}
+              style={styles.paywallButton}
+            />
+
+            <TouchableOpacity 
+              style={styles.restoreButton} 
+              onPress={handleRestore}
+            >
+              <Text style={styles.restoreText}>Restore Previous Purchase</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.paywallClose} 
+              onPress={() => {
+                setIsPaywallVisible(false);
+                navigation.goBack();
+              }}
+            >
+              <Text style={styles.paywallCloseText}>Maybe Later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Animated.View style={[styles.confetti, confettiStyle]} pointerEvents="none">
+        <Text style={styles.confettiText}>🎊 SUPER! 🎊</Text>
+      </Animated.View>
     </ImageBackground>
   );
 };
@@ -654,7 +990,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 182, 193, 0.4)', // Pink tint to match theme
+    backgroundColor: 'rgba(255, 182, 193, 0.4)', // Tint to match home screen
   },
   decoText: {
     fontSize: 32,
@@ -668,11 +1004,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: isPad ? spacing.lg : spacing.md,
+    paddingVertical: isPad ? spacing.md : spacing.xs, // Much tighter on phone landscape
   },
   headerTitle: {
     ...typography.h3,
+    fontSize: isPad ? 28 : 20,
     color: colors.text,
   },
   trialBadge: {
@@ -680,22 +1017,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
-    marginTop: 2,
+    marginTop: isPad ? 2 : 0,
   },
   trialText: {
-    fontSize: 10,
+    fontSize: isPad ? 10 : 8,
     color: '#FFF',
     fontWeight: '800',
   },
   headerCenter: {
     alignItems: 'center',
+    justifyContent: 'center',
   },
   starsContainer: {
     flexDirection: 'row',
-    gap: 2,
+    gap: isPad ? 2 : 1,
   },
   star: {
-    fontSize: 16,
+    fontSize: isPad ? 16 : 12,
     color: '#DDD',
   },
   starFilled: {
@@ -742,20 +1080,21 @@ const styles = StyleSheet.create({
   },
   gameContainer: {
     flex: 1,
-    padding: spacing.sm,
+    padding: isPad ? spacing.sm : spacing.xs,
   },
   alphabetGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: spacing.md,
+    gap: isPad ? 8 : 2, // 2px gap to ensure 13 items fit perfectly in 2 lines
+    paddingVertical: isPad ? spacing.sm : spacing.xs,
+    paddingHorizontal: isPad ? spacing.xl : 5, // Maximize width usage on iPhone
   },
   targetSlot: {
     width: TARGET_SIZE,
-    height: TARGET_SIZE + 15,
-    borderRadius: 12,
-    borderWidth: 2,
+    height: TARGET_SIZE + (isPad ? 15 : 10), // Even more compact on phone
+    borderRadius: 8, // Smaller radius for smaller box
+    borderWidth: 1.5,
     borderColor: 'rgba(0,0,0,0.1)',
     borderStyle: 'dashed',
     justifyContent: 'center',
@@ -766,80 +1105,86 @@ const styles = StyleSheet.create({
   hintOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255, 215, 0, 0.3)',
-    borderRadius: 10,
+    borderRadius: 6,
   },
   placedContent: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   targetText: {
-    ...typography.h2,
+    ...typography.h3,
     color: 'rgba(0,0,0,0.1)',
-    fontSize: 24,
+    fontSize: isPad ? 28 : 18,
   },
   targetTextVisible: {
     opacity: 1,
-    fontSize: 28,
+    fontSize: isPad ? 32 : 20,
     fontWeight: '700',
   },
+  emojiText: {
+    fontSize: isPad ? 32 : 16,
+    marginBottom: -2,
+  },
   wordText: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: -2,
+    fontSize: isPad ? 14 : 8,
+    fontWeight: '700',
+    marginTop: -1,
   },
   scatteredLetter: {
     position: 'absolute',
   },
   winContainer: {
     position: 'absolute',
-    top: height * 0.15,
+    top: isPad ? height * 0.5 : height * 0.6, // Move down to be below the grid letters
     left: spacing.lg,
     right: spacing.lg,
-    bottom: height * 0.2,
+    bottom: isPad ? height * 0.05 : 10,
     zIndex: 1000,
     justifyContent: 'center',
     alignItems: 'center',
   },
   winCard: {
-    padding: spacing.xl,
-    borderRadius: 40,
+    padding: isPad ? spacing.xl : spacing.sm, // Reduced padding for phone
+    borderRadius: isPad ? 40 : 20,
     alignItems: 'center',
-    width: '100%',
+    width: isPad ? '100%' : '90%', // Slightly narrower on phone landscape
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 15 },
     shadowOpacity: 0.4,
     shadowRadius: 30,
     elevation: 20,
-    borderWidth: 4,
+    borderWidth: isPad ? 4 : 2,
     borderColor: '#FFD700',
   },
   winText: {
     ...typography.h1,
     color: colors.primary,
     fontWeight: '900',
-    fontSize: 40,
+    fontSize: isPad ? 40 : 15, // Reduced from 18 to 15 to fit phone landscape
     textAlign: 'center',
-    marginVertical: spacing.md,
-    textShadowColor: 'rgba(0, 0, 0, 0.1)',
-    textShadowOffset: { width: 2, height: 2 },
-    textShadowRadius: 4,
+    marginVertical: isPad ? spacing.xl : 10, // Increased margin for Amazing Job text
   },
   winSubText: {
     ...typography.h3,
     color: colors.textLight,
     textAlign: 'center',
-    marginBottom: spacing.xl,
-    lineHeight: 32,
+    marginBottom: isPad ? spacing.xl : spacing.sm,
+    lineHeight: isPad ? 32 : 18,
+    fontSize: isPad ? 18 : 10, // Reduced from 12 to 10
   },
   winButton: {
-    width: '90%',
-    height: 70,
-    borderRadius: 35,
+    width: '100%',
+    height: isPad ? 70 : 44, // Slightly shorter for phone landscape
+    borderRadius: isPad ? 35 : 22,
+  },
+  winButtonContainer: {
+    width: isPad ? '90%' : '70%',
+    alignItems: 'center',
   },
   trophy: {
-    fontSize: 100,
-    marginBottom: 10,
-    transform: [{ scale: 1.2 }],
+    fontSize: isPad ? 100 : 30, // Reduced from 36 to 30
+    marginBottom: isPad ? 10 : 5,
+    transform: [{ scale: isPad ? 1.2 : 1.0 }],
   },
   confetti: {
     position: 'absolute',

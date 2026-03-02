@@ -1,37 +1,38 @@
 export interface LetterData {
   char: string;
   word: string;
+  emoji: string;
   isVowel: boolean;
   color?: string;
 }
 
 export const ALPHABET_DATA: LetterData[] = [
-  { char: 'A', word: 'Apple', isVowel: true },
-  { char: 'B', word: 'Ball', isVowel: false },
-  { char: 'C', word: 'Cat', isVowel: false },
-  { char: 'D', word: 'Dog', isVowel: false },
-  { char: 'E', word: 'Elephant', isVowel: true },
-  { char: 'F', word: 'Fish', isVowel: false },
-  { char: 'G', word: 'Giraffe', isVowel: false },
-  { char: 'H', word: 'Horse', isVowel: false },
-  { char: 'I', word: 'Igloo', isVowel: true },
-  { char: 'J', word: 'Jellyfish', isVowel: false },
-  { char: 'K', word: 'Kangaroo', isVowel: false },
-  { char: 'L', word: 'Lion', isVowel: false },
-  { char: 'M', word: 'Monkey', isVowel: false },
-  { char: 'N', word: 'Nest', isVowel: false },
-  { char: 'O', word: 'Octopus', isVowel: true },
-  { char: 'P', word: 'Penguin', isVowel: false },
-  { char: 'Q', word: 'Queen', isVowel: false },
-  { char: 'R', word: 'Rabbit', isVowel: false },
-  { char: 'S', word: 'Sun', isVowel: false },
-  { char: 'T', word: 'Tiger', isVowel: false },
-  { char: 'U', word: 'Umbrella', isVowel: true },
-  { char: 'V', word: 'Van', isVowel: false },
-  { char: 'W', word: 'Whale', isVowel: false },
-  { char: 'X', word: 'Xylophone', isVowel: false },
-  { char: 'Y', word: 'Yak', isVowel: false },
-  { char: 'Z', word: 'Zebra', isVowel: false },
+  { char: 'A', word: 'Apple', emoji: '🍎', isVowel: true },
+  { char: 'B', word: 'Ball', emoji: '⚽', isVowel: false },
+  { char: 'C', word: 'Cat', emoji: '🐱', isVowel: false },
+  { char: 'D', word: 'Doll', emoji: '🪆', isVowel: false },
+  { char: 'E', word: 'Egg', emoji: '🥚', isVowel: true },
+  { char: 'F', word: 'Fish', emoji: '🐟', isVowel: false },
+  { char: 'G', word: 'Goat', emoji: '🐐', isVowel: false },
+  { char: 'H', word: 'Hat', emoji: '🎩', isVowel: false },
+  { char: 'I', word: 'Ice Cream', emoji: '🍦', isVowel: true },
+  { char: 'J', word: 'Jump', emoji: '🏃', isVowel: false },
+  { char: 'K', word: 'Kite', emoji: '🪁', isVowel: false },
+  { char: 'L', word: 'Lamp', emoji: '💡', isVowel: false },
+  { char: 'M', word: 'Moon', emoji: '🌙', isVowel: false },
+  { char: 'N', word: 'Net', emoji: '🕸️', isVowel: false },
+  { char: 'O', word: 'Owl', emoji: '🦉', isVowel: true },
+  { char: 'P', word: 'Pet', emoji: '🐶', isVowel: false },
+  { char: 'Q', word: 'Queen', emoji: '👸', isVowel: false },
+  { char: 'R', word: 'Rain', emoji: '🌧️', isVowel: false },
+  { char: 'S', word: 'Sun', emoji: '☀️', isVowel: false },
+  { char: 'T', word: 'Train', emoji: '🚂', isVowel: false },
+  { char: 'U', word: 'Umbrella', emoji: '☂️', isVowel: true },
+  { char: 'V', word: 'Van', emoji: '🚐', isVowel: false },
+  { char: 'W', word: 'Whale', emoji: '🐋', isVowel: false },
+  { char: 'X', word: 'Xylophone', emoji: '🪗', isVowel: false },
+  { char: 'Y', word: 'Yo-Yo', emoji: '🪀', isVowel: false },
+  { char: 'Z', word: 'Zebra', emoji: '🦓', isVowel: false },
 ];
 
 export const ALPHABET = ALPHABET_DATA.map(d => d.char);

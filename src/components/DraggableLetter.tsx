@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, useWindowDimensions, ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -13,8 +13,6 @@ import Animated, {
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 
-const { width, height } = Dimensions.get('window');
-
 interface DraggableLetterProps {
   letter: string;
   isVowel: boolean;
@@ -23,6 +21,7 @@ interface DraggableLetterProps {
   onDoubleTap: () => void;
   onDragStart?: (letter: string) => void;
   onDragEnd?: () => void;
+  onDragUpdate?: (x: number, y: number) => void;
   onDrop?: (x: number, y: number) => void;
   onPress?: (letter: string) => void;
   size: number;
@@ -40,6 +39,7 @@ export const DraggableLetter: React.FC<DraggableLetterProps> = ({
   onDoubleTap,
   onDragStart,
   onDragEnd,
+  onDragUpdate,
   onDrop,
   onPress,
   size,
@@ -48,8 +48,9 @@ export const DraggableLetter: React.FC<DraggableLetterProps> = ({
   y,
   isPlaced = false,
 }) => {
+  const { width, height } = useWindowDimensions();
   const translateX = useSharedValue(x);
-  const translateY = useSharedValue(-200); // Start way above for the first entrance
+  const translateY = useSharedValue(-size); // Start just above screen
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
   const scale = useSharedValue(1);
@@ -83,14 +84,27 @@ export const DraggableLetter: React.FC<DraggableLetterProps> = ({
   const dragGesture = Gesture.Pan()
     .enabled(!disabled && !isPlaced)
     .onUpdate((event) => {
-      dragX.value = event.translationX;
-      dragY.value = event.translationY;
+      // Clamp translation to keep letter within screen bounds
+      // translateX.value is the initial x position of the letter
+      // dragX.value is the offset from that initial position
+      // So (translateX.value + event.translationX) is the actual screen X
+      
+      const nextX = translateX.value + event.translationX;
+      const nextY = translateY.value + event.translationY;
+      
+      // We want nextX to be between 0 and (width - size)
+      // So event.translationX should be between -translateX.value and (width - size - translateX.value)
+      dragX.value = clamp(event.translationX, -translateX.value, width - size - translateX.value);
+      dragY.value = clamp(event.translationY, -translateY.value, height - size - translateY.value);
+      
       scale.value = 1.1;
+      if (onDragUpdate) runOnJS(onDragUpdate)(translateX.value + dragX.value + size / 2, translateY.value + dragY.value + size / 2);
     })
     .onEnd((event) => {
       if (onDragEnd) runOnJS(onDragEnd)();
       if (onDrop) {
-        runOnJS(onDrop)(event.absoluteX, event.absoluteY);
+        // Use the clamped positions for the drop event too
+        runOnJS(onDrop)(translateX.value + dragX.value + size / 2, translateY.value + dragY.value + size / 2);
       }
       dragX.value = withSpring(0, slowSpringConfig);
       dragY.value = withSpring(0, slowSpringConfig);
