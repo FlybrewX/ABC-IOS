@@ -14,7 +14,12 @@ const Stack = createNativeStackNavigator();
 export default function App() {
   useEffect(() => {
     const setupApp = async () => {
-      await initAudio();
+      try {
+        console.log('[App] Initializing audio...');
+        await initAudio();
+      } catch (error) {
+        console.error('[App] Failed to initialize audio:', error);
+      }
     };
     setupApp();
 

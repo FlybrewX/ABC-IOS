@@ -94,7 +94,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const startOpacity = useSharedValue(1);
 
   useEffect(() => {
-    // Lock to Portrait on Mount with delay
+    // Temporarily disabled orientation locking to check if it's the cause of crash
+    /*
     const lockPortrait = async () => {
       // Ensure we only lock if we're focused and NOT already locked
       try {
@@ -111,6 +112,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     
     if (isFocused) {
       lockPortrait();
+    */
+    if (isFocused) {
       loadSettings().then(s => {
         setSettings(s);
         setBgMusicEnabled(s.bgMusicEnabled);
@@ -198,34 +201,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     let timeouts: NodeJS.Timeout[] = [];
 
     const startSingAlong = () => {
-      // SMART SYNC: Restart music and timers together
-      playBackgroundMusic(bgMusicEnabled, 'home', true);
+      // Small delay to ensure everything is mounted
+      const startTimer = setTimeout(() => {
+        if (!isFocused) return;
+        
+        // SMART SYNC: Restart music and timers together
+        playBackgroundMusic(bgMusicEnabled, 'home', true);
 
-      // Letters
-      alphabetArr.forEach(letter => {
-        const t = setTimeout(() => {
-          if (bgMusicEnabled && isFocused) setHighlightedLetter(letter);
-        }, letterTimings[letter]);
-        timeouts.push(t);
-      });
+        // Letters
+        alphabetArr.forEach(letter => {
+          const t = setTimeout(() => {
+            if (bgMusicEnabled && isFocused) setHighlightedLetter(letter);
+          }, letterTimings[letter]);
+          timeouts.push(t);
+        });
 
-      // Transcript Phrases
-      phrases.forEach(p => {
-        const t = setTimeout(() => {
-          if (bgMusicEnabled && isFocused) setCurrentPhrase(p.text);
-        }, p.time);
-        timeouts.push(t);
-      });
-      
-      // Reset after full song (approx 1 minute 51 seconds = 111000ms)
-      const resetT = setTimeout(() => {
-        if (isFocused) {
-          setHighlightedLetter(null);
-          setCurrentPhrase("Singing again...");
-          startSingAlong();
-        }
-      }, 111000);
-      timeouts.push(resetT);
+        // Transcript Phrases
+        phrases.forEach(p => {
+          const t = setTimeout(() => {
+            if (bgMusicEnabled && isFocused) setCurrentPhrase(p.text);
+          }, p.time);
+          timeouts.push(t);
+        });
+        
+        // Reset after full song
+        const resetT = setTimeout(() => {
+          if (isFocused) {
+            setHighlightedLetter(null);
+            setCurrentPhrase("Singing again...");
+            startSingAlong();
+          }
+        }, 111000);
+        timeouts.push(resetT);
+      }, 500);
+      timeouts.push(startTimer);
     };
 
     if (bgMusicEnabled && isFocused && settings !== null) {
@@ -291,8 +300,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     transform: [{ scale: withSpring(startOpacity.value === 1 ? 1 : 1.05) }]
   }));
 
-  // Generate many random decorations
-  const decorations = DECO_LETTERS.map((char, i) => (
+  // Generate fewer random decorations to reduce startup load
+  const decorations = DECO_LETTERS.slice(0, 8).map((char, i) => (
     <FloatingDecoration 
       key={i} 
       text={char} 
