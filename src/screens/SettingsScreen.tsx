@@ -223,7 +223,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
             onPress={() => setActiveTab('subs')}
           >
             <Ionicons name="card-outline" size={20} color={activeTab === 'subs' ? colors.primary : colors.textLight} />
-            <Text style={[styles.tabText, activeTab === 'subs' && styles.activeTabText]}>Subs</Text>
+            <Text style={[styles.tabText, activeTab === 'subs' && styles.activeTabText]}>UPGRADE</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -331,21 +331,33 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="star-outline" size={22} color={colors.primary} />
-                  <Text style={styles.sectionTitle}>Current Plan</Text>
+                  <Text style={styles.sectionTitle}>Full Version</Text>
                 </View>
                 <View style={styles.aboutRow}>
                   <Text style={styles.aboutLabel}>Status</Text>
                   <Text style={[styles.aboutValue, { color: settings.isPaid ? colors.success : colors.textLight }]}>
-                    {settings.isPaid ? 'Premium Unlocked' : 'Free Version'}
+                    {settings.isPaid ? 'Premium Unlocked' : 'Free Trial'}
                   </Text>
                 </View>
                 {!settings.isPaid && (
-                  <TouchableOpacity
-                    style={[styles.primaryActionButton, { marginTop: spacing.md }]}
-                    onPress={() => Alert.alert("Coming Soon", "In-app purchases will be available in the next update.")}
-                  >
-                    <Text style={styles.primaryActionButtonText}>Upgrade to Premium</Text>
-                  </TouchableOpacity>
+                  <>
+                    <TouchableOpacity
+                      style={[styles.primaryActionButton, { marginTop: spacing.md }]}
+                      onPress={() => Alert.alert("Coming Soon", "The full version will be available in the next update.")}
+                    >
+                      <Text style={styles.primaryActionButtonText}>Unlock Full Version - $0.99</Text>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.legalFooter}>
+                      <TouchableOpacity onPress={openPrivacyPolicy}>
+                        <Text style={styles.legalFooterLink}>Privacy Policy</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.legalFooterSeparator}>|</Text>
+                      <TouchableOpacity onPress={openTermsOfService}>
+                        <Text style={styles.legalFooterLink}>Terms of Service</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
                 )}
               </View>
 
@@ -401,23 +413,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
                 
                 <View style={styles.separator} />
                 
-                <TouchableOpacity 
-                  style={styles.menuItem} 
-                  onPress={openPrivacyPolicy}
-                >
-                  <Ionicons name="shield-checkmark-outline" size={22} color={colors.text} />
-                  <Text style={styles.menuItemText}>Privacy Policy</Text>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  style={styles.menuItem} 
-                  onPress={openTermsOfService}
-                >
-                  <Ionicons name="document-text-outline" size={22} color={colors.text} />
-                  <Text style={styles.menuItemText}>Terms of Service</Text>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
-                </TouchableOpacity>
+                <View style={styles.legalFooter}>
+                  <TouchableOpacity onPress={openPrivacyPolicy}>
+                    <Text style={styles.legalFooterLink}>Privacy Policy</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.legalFooterSeparator}>|</Text>
+                  <TouchableOpacity onPress={openTermsOfService}>
+                    <Text style={styles.legalFooterLink}>Terms of Service</Text>
+                  </TouchableOpacity>
+                </View>
                 
                 <Text style={styles.copyrightText}>© 2026 ABC Touch & Move. All rights reserved.</Text>
               </View>
@@ -690,5 +694,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.xl,
     opacity: 0.6,
+  },
+  legalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  legalFooterLink: {
+    ...typography.caption,
+    color: colors.textLight,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
+  legalFooterSeparator: {
+    ...typography.caption,
+    color: colors.textLight,
+    opacity: 0.5,
   },
 });

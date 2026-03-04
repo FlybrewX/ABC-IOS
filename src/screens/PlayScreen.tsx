@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   View,
   Text,
@@ -127,6 +126,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
     letterSize: LETTER_SIZE,
     gamesPlayed: 0,
     isPaid: false,
+    difficulty: 'easy',
   });
   
   const isFocused = useIsFocused();
@@ -201,22 +201,6 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
   }, [isFocused]);
 
   useEffect(() => {
-    // Lock to Landscape on Mount with delay to prevent crash during transition
-    const lockOrientation = async () => {
-      // Delay to ensure navigation animation finishes
-      await new Promise(resolve => setTimeout(resolve, 800)); // Slightly longer delay for stability
-      try {
-        const current = await ScreenOrientation.getOrientationAsync();
-        if (current !== ScreenOrientation.Orientation.LANDSCAPE_LEFT && 
-            current !== ScreenOrientation.Orientation.LANDSCAPE_RIGHT) {
-          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-        }
-      } catch (e) {
-        console.log("Orientation lock error:", e);
-      }
-    };
-    lockOrientation();
-
     initializeLetters();
     return () => {
       if (hintTimer.current) clearTimeout(hintTimer.current);
@@ -224,13 +208,6 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
       console.log('[PlayScreen] Unmount: pausing music');
       playBackgroundMusic(false, 'play'); 
       winTimeouts.current.forEach(clearTimeout);
-      
-      // Reset Orientation on Unmount
-      try {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.ALL);
-      } catch (e) {
-        console.log("Orientation unlock error:", e);
-      }
     };
   }, []);
 
@@ -452,9 +429,12 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
         ? { ...item, x: safePos.x, y: safePos.y }
         : item
     ));
-  }, [placedLetters, unplacedLetters, settings.soundEnabled, width, height, settings.gamesPlayed]);
+  }, [placedLetters, unplacedLetters, settings.soundEnabled, width, height, settings.gamesPlayed, settings.difficulty]);
 
   const handleDragUpdate = useCallback((letterItem: LetterItem, absX: number, absY: number) => {
+    // Difficulty: Mid/Hard will not auto-fill on match, must be dropped manually
+    if (settings.difficulty !== 'easy') return;
+    
     const { letter } = letterItem;
     const target = targetLayouts.current[letter];
     const HOVER_MARGIN = 30; // Slightly tighter than drop margin for better feel
@@ -478,7 +458,7 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
         });
       }
     }
-  }, [unplacedLetters, settings.soundEnabled]);
+  }, [unplacedLetters, settings.soundEnabled, settings.difficulty]);
 
   const completeLetter = (letterItem: LetterItem) => {
     const { letter } = letterItem;
@@ -708,6 +688,56 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
     }
   };
 
+  const openPrivacyPolicy = () => {
+    const a = Math.floor(Math.random() * 5) + 1;
+    const b = Math.floor(Math.random() * 5) + 1;
+    const answer = a + b;
+    
+    // Parental Gate for External Links (Rule 1.3)
+    Alert.prompt(
+      "Parents Only",
+      `Please solve to open Privacy Policy: ${a} + ${b} = ?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Submit", 
+          onPress: (val?: string) => {
+            if (parseInt(val || "0") === answer) {
+              Linking.openURL('https://flybrewx.github.io/ABC-IOS/abc-privacy.html');
+            } else {
+              Alert.alert("Oops!", "That's not correct.");
+            }
+          } 
+        }
+      ]
+    );
+  };
+
+  const openTermsOfService = () => {
+    const a = Math.floor(Math.random() * 5) + 1;
+    const b = Math.floor(Math.random() * 5) + 1;
+    const answer = a + b;
+    
+    // Parental Gate for External Links (Rule 1.3)
+    Alert.prompt(
+      "Parents Only",
+      `Please solve to open Terms of Service: ${a} + ${b} = ?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Submit", 
+          onPress: (val?: string) => {
+            if (parseInt(val || "0") === answer) {
+              Linking.openURL('https://flybrewx.github.io/ABC-IOS/abc-terms.html');
+            } else {
+              Alert.alert("Oops!", "That's not correct.");
+            }
+          } 
+        }
+      ]
+    );
+  };
+
   const completePurchase = async () => {
     // IMPORTANT: For App Store submission, you MUST implement real In-App Purchase logic
     // using StoreKit (via react-native-iap or expo-in-app-purchases) to comply with Rule 3.1.1.
@@ -871,7 +901,10 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
                       <Text style={styles.wordText}>{item.word}</Text>
                     </TouchableOpacity>
                   ) : (
-                    <Text style={styles.targetText}>
+                    <Text style={[
+                      styles.targetText, 
+                      settings.difficulty === 'hard' && { opacity: 0 }
+                    ]}>
                       {settings.isUppercase ? letter : letter.toLowerCase()}
                     </Text>
                   )}
@@ -963,6 +996,16 @@ export const PlayScreen: React.FC<PlayScreenProps> = ({ navigation }) => {
             >
               <Text style={styles.restoreText}>Restore Previous Purchase</Text>
             </TouchableOpacity>
+
+            <View style={styles.legalFooter}>
+              <TouchableOpacity onPress={openPrivacyPolicy}>
+                <Text style={styles.legalFooterLink}>Privacy Policy</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalFooterSeparator}>|</Text>
+              <TouchableOpacity onPress={openTermsOfService}>
+                <Text style={styles.legalFooterLink}>Terms of Service</Text>
+              </TouchableOpacity>
+            </View>
             
             <TouchableOpacity 
               style={styles.paywallClose} 
@@ -1265,5 +1308,23 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: colors.textLight,
     textDecorationLine: 'underline',
+  },
+  legalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  legalFooterLink: {
+    ...typography.caption,
+    color: colors.textLight,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
+  legalFooterSeparator: {
+    ...typography.caption,
+    color: colors.textLight,
+    opacity: 0.5,
   },
 });
