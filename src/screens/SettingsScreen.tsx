@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   View,
   Text,
@@ -9,15 +8,16 @@ import {
   TouchableOpacity,
   Linking,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { typography } from '../theme/typography';
-import { loadSettings, saveSettings, AppSettings } from '../storage/settings';
+import { loadSettings, saveSettings, AppSettings, DifficultyLevel } from '../storage/settings';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { SimpleSlider } from '../components/SimpleSlider';
 import { playLetterSound } from '../audio/audio';
 
 interface SettingsScreenProps {
@@ -25,6 +25,7 @@ interface SettingsScreenProps {
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
+  const [activeTab, setActiveTab] = useState<'game' | 'subs' | 'help'>('game');
   const [settings, setSettings] = useState<AppSettings>({
     soundEnabled: true,
     bgMusicEnabled: true,
@@ -33,10 +34,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     letterSize: 150,
     gamesPlayed: 0,
     isPaid: false,
+    difficulty: 'easy',
   });
 
   useEffect(() => {
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
     loadSettings().then(setSettings);
   }, []);
 
@@ -63,8 +64,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     await saveSettings(newSettings);
   };
 
-  const handleLetterSizeChange = async (value: number) => {
-    const newSettings = { ...settings, letterSize: value };
+  const handleDifficultyChange = async (value: DifficultyLevel) => {
+    const newSettings = { ...settings, difficulty: value };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleCaseToggle = async (value: boolean) => {
+    const newSettings = { ...settings, isUppercase: value };
     setSettings(newSettings);
     await saveSettings(newSettings);
   };
@@ -81,14 +88,39 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     // Parental Gate for External Links (Rule 1.3)
     Alert.prompt(
       "Parents Only",
-      `Please solve to open our website: ${a} + ${b} = ?`,
+      `Please solve to open Privacy Policy: ${a} + ${b} = ?`,
       [
         { text: "Cancel", style: "cancel" },
         { 
           text: "Submit", 
           onPress: (val?: string) => {
             if (parseInt(val || "0") === answer) {
-              Linking.openURL('https://abctouchmove.com/privacy');
+              Linking.openURL('https://flybrewx.github.io/ABC-IOS/abc-privacy.html');
+            } else {
+              Alert.alert("Oops!", "That's not correct.");
+            }
+          } 
+        }
+      ]
+    );
+  };
+
+  const openTermsOfService = () => {
+    const a = Math.floor(Math.random() * 5) + 1;
+    const b = Math.floor(Math.random() * 5) + 1;
+    const answer = a + b;
+    
+    // Parental Gate for External Links (Rule 1.3)
+    Alert.prompt(
+      "Parents Only",
+      `Please solve to open Terms of Use: ${a} + ${b} = ?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Submit", 
+          onPress: (val?: string) => {
+            if (parseInt(val || "0") === answer) {
+              Linking.openURL('https://flybrewx.github.io/ABC-IOS/abc-terms.html');
             } else {
               Alert.alert("Oops!", "That's not correct.");
             }
@@ -167,138 +199,230 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
     >
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <Text style={styles.title}>Settings</Text>
-          <PrimaryButton
-            label="←"
+          <TouchableOpacity 
             onPress={() => navigation.goBack()}
-            size="small"
-            variant="secondary"
-          />
+            style={styles.backButton}
+          >
+            <Ionicons name="chevron-back" size={28} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Settings</Text>
+          <View style={{ width: 28 }} />
+        </View>
+
+        <View style={styles.tabBar}>
+          <TouchableOpacity 
+            style={[styles.tabItem, activeTab === 'game' && styles.activeTabItem]} 
+            onPress={() => setActiveTab('game')}
+          >
+            <Ionicons name="game-controller" size={20} color={activeTab === 'game' ? colors.primary : colors.textLight} />
+            <Text style={[styles.tabText, activeTab === 'game' && styles.activeTabText]}>Game</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.tabItem, activeTab === 'subs' && styles.activeTabItem]} 
+            onPress={() => setActiveTab('subs')}
+          >
+            <Ionicons name="card-outline" size={20} color={activeTab === 'subs' ? colors.primary : colors.textLight} />
+            <Text style={[styles.tabText, activeTab === 'subs' && styles.activeTabText]}>Subs</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.tabItem, activeTab === 'help' && styles.activeTabItem]} 
+            onPress={() => setActiveTab('help')}
+          >
+            <Ionicons name="help-circle" size={20} color={activeTab === 'help' ? colors.primary : colors.textLight} />
+            <Text style={[styles.tabText, activeTab === 'help' && styles.activeTabText]}>Help</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🔊 Sound</Text>
-            <View style={styles.settingRow}>
-              <View style={styles.settingLabel}>
-                <Text style={styles.labelText}>Sound Enabled</Text>
-                <Text style={styles.labelSubtext}>Hear letter sounds</Text>
+          {activeTab === 'game' && (
+            <>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="volume-medium-outline" size={22} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>Audio</Text>
+                </View>
+                
+                <View style={styles.settingRow}>
+                  <View style={styles.settingLabel}>
+                    <Text style={styles.labelText}>Sound Effects</Text>
+                    <Text style={styles.labelSubtext}>Hear letter names and feedback</Text>
+                  </View>
+                  <Switch
+                    value={settings.soundEnabled}
+                    onValueChange={handleSoundToggle}
+                    trackColor={{ false: '#767577', true: colors.success + '80' }}
+                    thumbColor={settings.soundEnabled ? colors.success : '#f4f3f4'}
+                    ios_backgroundColor="#767577"
+                  />
+                </View>
+
+                <View style={styles.settingRow}>
+                  <View style={styles.settingLabel}>
+                    <Text style={styles.labelText}>Background Music</Text>
+                    <Text style={styles.labelSubtext}>Ambient music during play</Text>
+                  </View>
+                  <Switch
+                    value={settings.bgMusicEnabled}
+                    onValueChange={handleBgMusicToggle}
+                    trackColor={{ false: '#767577', true: colors.success + '80' }}
+                    thumbColor={settings.bgMusicEnabled ? colors.success : '#f4f3f4'}
+                    ios_backgroundColor="#767577"
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={styles.outlineButton}
+                  onPress={handleTestSound}
+                >
+                  <Ionicons name="play-circle-outline" size={20} color={colors.secondary} />
+                  <Text style={styles.outlineButtonText}>Test Sound (A)</Text>
+                </TouchableOpacity>
               </View>
-              <Switch
-                value={settings.soundEnabled}
-                onValueChange={handleSoundToggle}
-                trackColor={{ false: '#767577', true: colors.success }}
-                thumbColor={settings.soundEnabled ? colors.primary : '#f4f3f4'}
-              />
-            </View>
 
-            <View style={styles.settingRow}>
-              <View style={styles.settingLabel}>
-                <Text style={styles.labelText}>Background Music</Text>
-                <Text style={styles.labelSubtext}>Play music while playing</Text>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="game-controller-outline" size={22} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>Gameplay</Text>
+                </View>
+
+                <View style={styles.settingRowNoBorder}>
+                  <View style={styles.settingLabel}>
+                    <Text style={styles.labelText}>Difficulty Level</Text>
+                    <Text style={styles.labelSubtext}>Choose how much help to show</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.difficultyContainer}>
+                  <TouchableOpacity 
+                    style={[styles.difficultyButton, settings.difficulty === 'easy' && styles.difficultyButtonActive]}
+                    onPress={() => handleDifficultyChange('easy')}
+                  >
+                    <Text style={[styles.difficultyButtonText, settings.difficulty === 'easy' && styles.difficultyButtonTextActive]}>Easy</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.difficultyButton, settings.difficulty === 'mid' && styles.difficultyButtonActive]}
+                    onPress={() => handleDifficultyChange('mid')}
+                  >
+                    <Text style={[styles.difficultyButtonText, settings.difficulty === 'mid' && styles.difficultyButtonTextActive]}>Mid</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.difficultyButton, settings.difficulty === 'hard' && styles.difficultyButtonActive]}
+                    onPress={() => handleDifficultyChange('hard')}
+                  >
+                    <Text style={[styles.difficultyButtonText, settings.difficulty === 'hard' && styles.difficultyButtonTextActive]}>Hard</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <Text style={styles.difficultyDescription}>
+                  {settings.difficulty === 'easy' && "Normal mode: Letters auto-fill and hints are visible."}
+                  {settings.difficulty === 'mid' && "Medium: Matching letters won't auto-fill. Child must place them."}
+                  {settings.difficulty === 'hard' && "Expert: No auto-fill and target letters are hidden (transparent)."}
+                </Text>
               </View>
-              <Switch
-                value={settings.bgMusicEnabled}
-                onValueChange={handleBgMusicToggle}
-                trackColor={{ false: '#767577', true: colors.success }}
-                thumbColor={settings.bgMusicEnabled ? colors.primary : '#f4f3f4'}
-              />
-            </View>
+            </>
+          )}
 
-            <TouchableOpacity
-              style={styles.testButton}
-              onPress={handleTestSound}
-            >
-              <Text style={styles.testButtonText}>🔊 Test Sound (A)</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🎮 Playback</Text>
-            <View style={styles.settingRow}>
-              <View style={styles.settingLabel}>
-                <Text style={styles.labelText}>Auto-Advance</Text>
-                <Text style={styles.labelSubtext}>Next letter after sound</Text>
+          {activeTab === 'subs' && (
+            <>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="star-outline" size={22} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>Current Plan</Text>
+                </View>
+                <View style={styles.aboutRow}>
+                  <Text style={styles.aboutLabel}>Status</Text>
+                  <Text style={[styles.aboutValue, { color: settings.isPaid ? colors.success : colors.textLight }]}>
+                    {settings.isPaid ? 'Premium Unlocked' : 'Free Version'}
+                  </Text>
+                </View>
+                {!settings.isPaid && (
+                  <TouchableOpacity
+                    style={[styles.primaryActionButton, { marginTop: spacing.md }]}
+                    onPress={() => Alert.alert("Coming Soon", "In-app purchases will be available in the next update.")}
+                  >
+                    <Text style={styles.primaryActionButtonText}>Upgrade to Premium</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-              <Switch
-                value={settings.autoAdvance}
-                onValueChange={handleAutoAdvanceToggle}
-                trackColor={{ false: '#767577', true: colors.success }}
-                thumbColor={settings.autoAdvance ? colors.primary : '#f4f3f4'}
-              />
-            </View>
-          </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📏 Letter Size</Text>
-            <View style={styles.sizeDisplay}>
-              <Text style={[styles.sizePreview, { fontSize: settings.letterSize * 0.3 }]}>
-                A
-              </Text>
-            </View>
-            <View style={styles.sliderContainer}>
-              <Text style={styles.sizeLabel}>Small</Text>
-              <SimpleSlider
-                minimumValue={80}
-                maximumValue={220}
-                step={10}
-                value={settings.letterSize}
-                onValueChange={handleLetterSizeChange}
-                minimumTrackTintColor={colors.secondary}
-                maximumTrackTintColor={colors.buttonDisabled}
-              />
-              <Text style={styles.sizeLabel}>Large</Text>
-            </View>
-            <Text style={styles.sizeValue}>{settings.letterSize}px</Text>
-          </View>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="refresh-circle-outline" size={22} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>Account Actions</Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={handleRestore}
+                >
+                  <Ionicons name="cart-outline" size={22} color={colors.text} />
+                  <Text style={styles.menuItemText}>Restore Previous Purchase</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
 
-          <View style={styles.infoSection}>
-            <Text style={styles.infoTitle}>💡 Tips</Text>
-            <Text style={styles.infoText}>
-              • 👆 Tap letters to hear sounds
-            </Text>
-            <Text style={styles.infoText}>
-              • 🖐️ Drag letters to the boxes
-            </Text>
-            <Text style={styles.infoText}>
-              • ✨ Double tap for a surprise!
-            </Text>
-            <Text style={styles.infoText}>
-              • ✅ Settings save automatically
-            </Text>
-          </View>
+          {activeTab === 'help' && (
+            <>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="mail-outline" size={22} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>Support</Text>
+                </View>
+                <Text style={styles.supportDescription}>
+                  Having trouble? Our team is here to help you and your little learner.
+                </Text>
+                <TouchableOpacity
+                  style={styles.primaryActionButton}
+                  onPress={handleContactSupport}
+                >
+                  <Text style={styles.primaryActionButtonText}>Contact Support</Text>
+                </TouchableOpacity>
+              </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>✉️ Support</Text>
-            <Text style={styles.labelSubtext}>Need help? Contact us!</Text>
-            <TouchableOpacity
-              style={styles.testButton}
-              onPress={handleContactSupport}
-            >
-              <Text style={styles.testButtonText}>Email Support</Text>
-            </TouchableOpacity>
-          </View>
+              <View style={[styles.section, { marginBottom: 60 }]}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="information-circle-outline" size={22} color={colors.primary} />
+                  <Text style={styles.sectionTitle}>About</Text>
+                </View>
+                
+                <View style={styles.aboutRow}>
+                  <Text style={styles.aboutLabel}>App Name</Text>
+                  <Text style={styles.aboutValue}>ABC Touch & Move</Text>
+                </View>
+                <View style={styles.aboutRow}>
+                  <Text style={styles.aboutLabel}>Version</Text>
+                  <Text style={styles.aboutValue}>1.0.0 (Build 10)</Text>
+                </View>
+                
+                <View style={styles.separator} />
+                
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={openPrivacyPolicy}
+                >
+                  <Ionicons name="shield-checkmark-outline" size={22} color={colors.text} />
+                  <Text style={styles.menuItemText}>Privacy Policy</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+                </TouchableOpacity>
 
-          <View style={[styles.section, { marginBottom: 40 }]}>
-            <Text style={styles.sectionTitle}>⚖️ Legal & About</Text>
-            <Text style={styles.labelText}>ABC Learning for Kids</Text>
-            <Text style={styles.labelSubtext}>Version 1.0.0</Text>
-            <Text style={styles.labelSubtext}>© 2024 ABC Touch & Move</Text>
-            
-            <TouchableOpacity 
-              style={[styles.privacyButton, { marginBottom: 0, marginTop: 10, padding: 10 }]} 
-              onPress={handleRestore}
-            >
-              <Text style={styles.privacyText}>Restore Previous Purchase</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.privacyButton, { marginBottom: 0, marginTop: 10, padding: 10 }]} 
-              onPress={openPrivacyPolicy}
-            >
-              <Text style={styles.privacyText}>Privacy Policy & Terms</Text>
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={openTermsOfService}
+                >
+                  <Ionicons name="document-text-outline" size={22} color={colors.text} />
+                  <Text style={styles.menuItemText}>Terms of Service</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+                </TouchableOpacity>
+                
+                <Text style={styles.copyrightText}>© 2026 ABC Touch & Move. All rights reserved.</Text>
+              </View>
+            </>
+          )}
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
@@ -318,37 +442,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
+    backgroundColor: 'transparent',
+  },
+  backButton: {
+    padding: spacing.xs,
+    marginLeft: -spacing.xs,
   },
   title: {
     ...typography.h2,
     color: colors.text,
     fontWeight: '700',
+    letterSpacing: -0.5,
   },
-  content: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    gap: spacing.lg,
-  },
-  section: {
+  tabBar: {
+    flexDirection: 'row',
     backgroundColor: colors.surface,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
     borderRadius: 12,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
+    padding: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 5,
     elevation: 2,
   },
-  sectionTitle: {
-    ...typography.h3,
-    color: colors.text,
+  tabItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: 10,
+    gap: spacing.xs,
+  },
+  activeTabItem: {
+    backgroundColor: colors.primary + '10',
+  },
+  tabText: {
+    ...typography.bodyMedium,
+    color: colors.textLight,
     fontWeight: '600',
+  },
+  activeTabText: {
+    color: colors.primary,
+  },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  section: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: spacing.lg,
     marginBottom: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  sectionTitle: {
+    ...typography.h4,
+    color: colors.text,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   settingRow: {
     flexDirection: 'row',
@@ -356,94 +521,174 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#F5F5F5',
+  },
+  settingRowNoBorder: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  difficultyContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  difficultyButton: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  difficultyButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  difficultyButtonText: {
+    ...typography.bodyMedium,
+    color: colors.textLight,
+    fontWeight: '700',
+  },
+  difficultyButtonTextActive: {
+    color: colors.surface,
+  },
+  difficultyDescription: {
+    ...typography.caption,
+    color: colors.textLight,
+    fontStyle: 'italic',
+    marginBottom: spacing.sm,
+    lineHeight: 18,
   },
   settingLabel: {
     flex: 1,
+    paddingRight: spacing.md,
   },
   labelText: {
     ...typography.bodyLarge,
     color: colors.text,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   labelSubtext: {
     ...typography.caption,
     color: colors.textLight,
-    marginTop: spacing.xs,
+    marginTop: 2,
   },
-  testButton: {
-    backgroundColor: colors.secondary,
-    borderRadius: 8,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+  outlineButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.secondary + '40',
+    borderRadius: 12,
+    paddingVertical: spacing.sm,
     marginTop: spacing.md,
+    gap: spacing.sm,
   },
-  testButtonText: {
-    ...typography.bodyLarge,
-    color: colors.surface,
+  outlineButtonText: {
+    ...typography.bodyMedium,
+    color: colors.secondary,
     fontWeight: '600',
   },
+  sizePreviewContainer: {
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
   sizeDisplay: {
+    width: '100%',
     height: 100,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9F9F9',
-    borderRadius: 8,
-    marginBottom: spacing.lg,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   sizePreview: {
-    fontWeight: '700',
-    color: colors.letterText,
+    fontWeight: '800',
+    color: colors.primary,
   },
-  sliderContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  slider: {
-    flex: 1,
-    height: 40,
-  },
-  sizeLabel: {
+  sizeLabelSmall: {
     ...typography.caption,
     color: colors.textLight,
-    minWidth: 45,
+    marginTop: spacing.xs,
+    textTransform: 'uppercase',
+  },
+  sliderWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  sizeValueText: {
     textAlign: 'center',
-  },
-  sizeValue: {
-    ...typography.body,
+    ...typography.bodyMedium,
     color: colors.text,
-    textAlign: 'center',
-    fontWeight: '600',
+    fontWeight: '700',
+    marginTop: spacing.sm,
   },
-  infoSection: {
-    backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  infoTitle: {
-    ...typography.bodyLarge,
-    color: colors.text,
-    fontWeight: '600',
+  supportDescription: {
+    ...typography.bodyMedium,
+    color: colors.textLight,
     marginBottom: spacing.md,
+    lineHeight: 20,
   },
-  infoText: {
-    ...typography.body,
-    color: colors.text,
+  primaryActionButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  primaryActionButtonText: {
+    ...typography.bodyLarge,
+    color: colors.surface,
+    fontWeight: '700',
+  },
+  aboutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  privacyButton: {
-    padding: spacing.lg,
-    alignItems: 'center',
-    marginBottom: spacing.xxl,
-  },
-  privacyText: {
-    ...typography.label,
+  aboutLabel: {
+    ...typography.bodyMedium,
     color: colors.textLight,
-    textDecorationLine: 'underline',
+  },
+  aboutValue: {
+    ...typography.bodyMedium,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: '#F5F5F5',
+    marginVertical: spacing.md,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+  },
+  menuItemText: {
+    flex: 1,
+    ...typography.bodyLarge,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  copyrightText: {
+    ...typography.caption,
+    color: colors.textLight,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    opacity: 0.6,
   },
 });
